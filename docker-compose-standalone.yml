@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with TimescaleDB
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: telemetry-postgres
+    environment:
+      POSTGRES_USER: telemetry_user
+      POSTGRES_PASSWORD: telemetry_pass
+      POSTGRES_DB: telemetry
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemetry_user -d telemetry"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for streaming
+  redis:
+    image: redis:7-alpine
+    container_name: telemetry-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MQTT Broker
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: telemetry-mqtt
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./infrastructure/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mqtt_data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -i healthcheck || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Ingestion Service (Node.js with dependencies)
+  ingestion-service:
+    image: node:20-alpine
+    container_name: telemetry-ingestion
+    working_dir: /app
+    command: sh -c "npm install && node index.js"
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+      MQTT_BROKER_URL: mqtt://mqtt:1883
+    volumes:
+      - ./backend/ingestion-service:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Stream Processor
+  stream-processor:
+    image: node:20-alpine
+    container_name: telemetry-processor
+    working_dir: /app
+    command: sh -c "npm install && node processor.js"
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://telemetry_user:telemetry_pass@postgres:5432/telemetry
+    volumes:
+      - ./backend/stream-processor:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # API Service with WebSocket
+  api-service:
+    image: node:20-alpine
+    container_name: telemetry-api
+    working_dir: /app
+    command: sh -c "npm install && node index.js"
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://telemetry_user:telemetry_pass@postgres:5432/telemetry
+    volumes:
+      - ./backend/api-service:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Telemetry Simulator
+  simulator:
+    image: node:20-alpine
+    container_name: telemetry-simulator
+    working_dir: /app
+    command: sh -c "npm install && node simulate-telemetry-rest.js --vehicles 10 --interval 2000"
+    environment:
+      API_URL: http://ingestion-service:3000
+    volumes:
+      - ./scripts:/app
+    depends_on:
+      - ingestion-service
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  mqtt_data:

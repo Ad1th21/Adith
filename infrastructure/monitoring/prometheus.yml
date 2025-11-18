@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'telemetry-monitor'
+
+scrape_configs:
+  # Ingestion Service metrics
+  - job_name: 'ingestion-service'
+    static_configs:
+      - targets: ['ingestion-service:3000']
+    metrics_path: '/metrics'
+
+  # Stream Processor metrics
+  - job_name: 'stream-processor'
+    static_configs:
+      - targets: ['stream-processor:3002']
+    metrics_path: '/metrics'
+
+  # API Service metrics
+  - job_name: 'api-service'
+    static_configs:
+      - targets: ['api-service:3001']
+    metrics_path: '/metrics'
+
+  # PostgreSQL exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+
+  # Redis exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+
+  # Node exporters for system metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['ingestion-service:9100', 'stream-processor:9100', 'api-service:9100']

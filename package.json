@@ -1,0 +1,71 @@
+{
+  "name": "vehicle-telemetry-system",
+  "version": "1.0.0",
+  "description": "Production-grade vehicle telemetry visualization platform for fleet operators",
+  "private": true,
+  "workspaces": [
+    "backend/*",
+    "frontend",
+    "shared",
+    "scripts"
+  ],
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently \"pnpm:dev:*\"",
+    "dev:ingestion": "pnpm --filter ingestion-service dev",
+    "dev:processor": "pnpm --filter stream-processor dev",
+    "dev:api": "pnpm --filter api-service dev",
+    "dev:frontend": "pnpm --filter frontend dev",
+    "build": "pnpm -r build",
+    "build:backend": "pnpm --filter \"./backend/**\" build",
+    "build:frontend": "pnpm --filter frontend build",
+    "test": "pnpm -r test",
+    "test:integration": "pnpm --filter \"./backend/**\" test:integration",
+    "lint": "pnpm -r lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "simulate:rest": "pnpm --filter scripts simulate:rest",
+    "simulate:mqtt": "pnpm --filter scripts simulate:mqtt",
+    "seed:vehicles": "pnpm --filter scripts seed:vehicles",
+    "migrate:up": "pnpm --filter api-service migrate:up",
+    "migrate:down": "pnpm --filter api-service migrate:down",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:build": "docker-compose build",
+    "docker:prod": "docker-compose -f docker-compose.prod.yml up -d",
+    "load-test": "pnpm --filter scripts load-test"
+  },
+  "keywords": [
+    "telemetry",
+    "vehicle",
+    "fleet-management",
+    "iot",
+    "real-time",
+    "timescaledb",
+    "websocket",
+    "mqtt"
+  ],
+  "author": "Adith",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "concurrently": "^8.2.2",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "prettier": "^3.1.1",
+    "typescript": "^5.3.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "typescript": "^5.3.3"
+    }
+  }
+}

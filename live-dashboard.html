@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚗 Fleet Telemetry Dashboard - Live Demo</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        body.dark { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
+        .glass { 
+            background: rgba(255, 255, 255, 0.95); 
+            backdrop-filter: blur(10px); 
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .dark .glass { 
+            background: rgba(30, 30, 50, 0.9); 
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .dark .text-gray-900 { color: #e5e7eb !important; }
+        .dark .text-gray-600 { color: #9ca3af !important; }
+        .dark .text-gray-500 { color: #6b7280 !important; }
+        .dark .bg-white { background: #1e1e3a !important; }
+        .dark .border-b { border-color: rgba(255, 255, 255, 0.1) !important; }
+        .card { background: white; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 1rem; }
+        .vehicle-card { transition: all 0.3s; cursor: pointer; }
+        .vehicle-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .status-online { 
+            background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); 
+            color: #166534; 
+            box-shadow: 0 2px 8px rgba(22, 101, 52, 0.2);
+        }
+        .status-driving { 
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); 
+            color: #1e40af; 
+            box-shadow: 0 2px 8px rgba(30, 64, 175, 0.2);
+            animation: drivingPulse 2s infinite;
+        }
+        @keyframes drivingPulse {
+            0%, 100% { box-shadow: 0 2px 8px rgba(30, 64, 175, 0.2); }
+            50% { box-shadow: 0 2px 16px rgba(30, 64, 175, 0.4); }
+        }
+        .status-charging { 
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); 
+            color: #92400e; 
+            box-shadow: 0 2px 8px rgba(146, 64, 14, 0.2);
+            animation: chargingPulse 1.5s infinite;
+        }
+        @keyframes chargingPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .status-idle { background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%); color: #374151; }
+        .battery-high { color: #16a34a; text-shadow: 0 0 10px rgba(22, 163, 74, 0.3); }
+        .battery-medium { color: #eab308; text-shadow: 0 0 10px rgba(234, 179, 8, 0.3); }
+        .battery-low { 
+            color: #dc2626; 
+            text-shadow: 0 0 10px rgba(220, 38, 38, 0.3);
+            animation: batteryAlert 1s infinite;
+        }
+        @keyframes batteryAlert {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .pulse { 
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; 
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+        }
+        @keyframes pulse { 
+            0%, 100% { 
+                opacity: 1; 
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+            } 
+            50% { 
+                opacity: .8; 
+                box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+            } 
+        }
+        #map { 
+            height: 500px; 
+            width: 100%; 
+            border-radius: 1rem; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .dark .card {
+            background: rgba(30, 30, 50, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .vehicle-card {
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        .vehicle-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+        .vehicle-card:hover::before {
+            left: 100%;
+        }
+        .vehicle-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+        .vehicle-card:active {
+            transform: translateY(-4px) scale(0.98);
+        }
+        .status-online { 
+            background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); 
+            color: #166534; 
+            box-shadow: 0 2px 8px rgba(22, 101, 52, 0.2);
+        }
+        .status-driving {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            border-radius: 1.5rem;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        .dark .modal-content {
+            background: rgba(30, 30, 50, 0.98);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+        }
+        @keyframes slideUp { 
+            from { transform: translateY(100px) scale(0.9); opacity: 0; } 
+            to { transform: translateY(0) scale(1); opacity: 1; } 
+        }
+        .modal-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        .modal-content::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.1);
+            border-radius: 4px;
+        }
+        .modal-content::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+        }
+        .modal-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(0,0,0,0.5);
+        }
+        .filter-btn {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .filter-btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(59, 130, 246, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        .filter-btn:active::after {
+            width: 300px;
+            height: 300px;
+        }
+        .filter-btn.active {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+            transform: translateY(-2px);
+        }
+        .filter-btn:hover:not(.active) {
+            background: #e5e7eb;
+            transform: translateY(-2px);
+        }
+        #chartCanvas { max-height: 300px; }
+        .stat-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+        .stat-card:hover {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        }
+        .icon-float {
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        .loading-spinner {
+            border: 3px solid rgba(59, 130, 246, 0.2);
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 1000;
+            white-space: nowrap;
+        }
+        .tooltip.show {
+            opacity: 1;
+        }
+        .button-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+        }
+        .button-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+        }
+        .button-primary:active {
+            transform: translateY(0);
+        }
+        .speed-meter {
+            display: inline-block;
+            width: 100%;
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .speed-meter-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+        .battery-meter {
+            display: inline-block;
+            width: 100%;
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .battery-meter-fill {
+            height: 100%;
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s;
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
+        }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @keyframes fadeIn { from { opacity: 0; backdrop-filter: blur(0); } to { opacity: 1; backdrop-filter: blur(8px); } }
+        .modal-content {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            border-radius: 1.5rem;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        .dark .modal-content {
+            background: rgba(30, 30, 50, 0.98);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+        }
+        @keyframes slideUp { 
+            from { transform: translateY(100px) scale(0.9); opacity: 0; } 
+            to { transform: translateY(0) scale(1); opacity: 1; } 
+        }
+        @keyframes slideInRight {
+            from { transform: translateX(100px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOut { 
+            from { transform: translateX(0); opacity: 1; } 
+            to { transform: translateX(400px); opacity: 0; } 
+        }
+        .slide-in {
+            animation: slideInRight 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <header class="bg-white border-b shadow-sm sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <div class="relative">
+                        <div class="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full blur opacity-75 animate-pulse"></div>
+                        <svg class="relative w-10 h-10 text-white icon-float" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-white drop-shadow-lg">Fleet Command Center</h1>
+                        <p class="text-xs text-white opacity-80">Real-time Vehicle Monitoring System</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="toggleFullscreen()" class="p-2.5 rounded-xl hover:bg-white/20 transition-all duration-300 group" title="Toggle Fullscreen">
+                        <svg class="w-5 h-5 text-white group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                        </svg>
+                    </button>
+                    <button onclick="toggleDarkMode()" class="p-2.5 rounded-xl hover:bg-white/20 transition-all duration-300 group" title="Toggle Dark Mode">
+                        <svg id="theme-icon" class="w-5 h-5 text-white group-hover:rotate-180 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                        </svg>
+                    </button>
+                    <button onclick="exportData()" class="p-2.5 rounded-xl hover:bg-white/20 transition-all duration-300 group" title="Export Data">
+                        <svg class="w-5 h-5 text-white group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                    </button>
+                    <div class="flex items-center space-x-2 px-4 py-2 bg-white/20 rounded-xl">
+                        <span class="h-3 w-3 rounded-full bg-green-400 pulse"></span>
+                        <span class="text-sm text-white font-semibold">LIVE</span>
+                    </div>
+                    <div class="text-right px-4 py-2 bg-white/10 rounded-xl">
+                        <span id="time" class="text-sm text-white font-semibold block"></span>
+                        <span id="update-counter" class="text-xs text-white/70">0 updates</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="card stat-card relative overflow-hidden" onclick="highlightVehicles('all')">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full -mr-16 -mt-16"></div>
+                <div class="flex items-center justify-between relative z-10">
+                    <div>
+                        <p class="text-sm text-gray-500 mb-2 font-medium">Total Vehicles</p>
+                        <p id="stat-total" class="text-4xl font-bold text-gray-900 mb-1">10</p>
+                        <p class="text-xs text-gray-400">Active in fleet</p>
+                    </div>
+                    <div class="p-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg icon-float">
+                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card stat-card relative overflow-hidden" onclick="highlightVehicles('online')">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-green-500/20 to-transparent rounded-full -mr-16 -mt-16"></div>
+                <div class="flex items-center justify-between relative z-10">
+                    <div>
+                        <p class="text-sm text-gray-500 mb-2 font-medium">Online Now</p>
+                        <p id="stat-online" class="text-4xl font-bold text-green-600 mb-1">10</p>
+                        <p class="text-xs text-gray-400">Real-time connected</p>
+                    </div>
+                    <div class="p-4 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg icon-float">
+                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card stat-card relative overflow-hidden" onclick="highlightVehicles('battery')">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-yellow-500/20 to-transparent rounded-full -mr-16 -mt-16"></div>
+                <div class="flex items-center justify-between relative z-10">
+                    <div>
+                        <p class="text-sm text-gray-500 mb-2 font-medium">Avg Battery</p>
+                        <p id="stat-battery" class="text-4xl font-bold text-yellow-600 mb-1">78%</p>
+                        <p class="text-xs text-gray-400">Fleet average</p>
+                    </div>
+                    <div class="p-4 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-2xl shadow-lg icon-float">
+                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card stat-card relative overflow-hidden" onclick="showAlertsList()">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-red-500/20 to-transparent rounded-full -mr-16 -mt-16"></div>
+                <div class="flex items-center justify-between relative z-10">
+                    <div>
+                        <p class="text-sm text-gray-500 mb-2 font-medium">Active Alerts</p>
+                        <p id="stat-alerts" class="text-4xl font-bold text-red-600 mb-1">0</p>
+                        <p class="text-xs text-gray-400">Requires attention</p>
+                    </div>
+                    <div class="p-4 bg-gradient-to-br from-red-500 to-red-600 rounded-2xl shadow-lg" id="alert-icon">
+                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="card relative group">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 class="text-xl font-bold text-gray-900">⚡ Fleet Performance</h3>
+                        <p class="text-xs text-gray-500 mt-1">Real-time speed & battery trends</p>
+                    </div>
+                    <button onclick="resetChart('performance')" class="opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-gray-100 rounded-lg">
+                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </button>
+                </div>
+                <canvas id="performanceChart"></canvas>
+            </div>
+            <div class="card relative group">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 class="text-xl font-bold text-gray-900">🔋 Battery Distribution</h3>
+                        <p class="text-xs text-gray-500 mt-1">Fleet charge level breakdown</p>
+                    </div>
+                    <button onclick="resetChart('battery')" class="opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-gray-100 rounded-lg">
+                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </button>
+                </div>
+                <canvas id="batteryChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Map View -->
+        <div class="card mb-8 relative">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-900">🗺️ Live Fleet Tracker</h2>
+                    <p class="text-sm text-gray-500 mt-1">Real-time GPS positions • <span id="map-vehicle-count">10</span> vehicles active</p>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="centerMap()" class="button-primary px-4 py-2 text-white rounded-xl hover:bg-blue-600 transition text-sm font-medium flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                        </svg>
+                        Center
+                    </button>
+                    <button onclick="toggleHeatmap()" id="route-btn" class="px-4 py-2 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:border-blue-500 hover:text-blue-500 transition text-sm font-medium flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+                        </svg>
+                        Routes
+                    </button>
+                    <button onclick="toggleMapStyle()" class="px-4 py-2 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:border-blue-500 hover:text-blue-500 transition text-sm font-medium flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/>
+                        </svg>
+                        Style
+                    </button>
+                </div>
+            </div>
+            <div id="map" class="relative">
+                <div id="map-loading" class="absolute inset-0 flex items-center justify-center bg-white/90 z-1000 rounded-xl" style="display: none;">
+                    <div class="text-center">
+                        <div class="loading-spinner mx-auto mb-4"></div>
+                        <p class="text-gray-600 font-medium">Loading map...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="card mb-6">
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-2">
+                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+                    </svg>
+                    <span class="text-sm font-bold text-gray-700">Filter by Status:</span>
+                </div>
+                <button onclick="filterVehicles('all')" class="filter-btn active px-5 py-2.5 rounded-xl bg-gray-200 text-gray-700 transition text-sm font-medium">
+                    All (<span id="filter-all-count">10</span>)
+                </button>
+                <button onclick="filterVehicles('driving')" class="filter-btn px-5 py-2.5 rounded-xl bg-gray-200 text-gray-700 transition text-sm font-medium">
+                    🚗 Driving (<span id="filter-driving-count">0</span>)
+                </button>
+                <button onclick="filterVehicles('charging')" class="filter-btn px-5 py-2.5 rounded-xl bg-gray-200 text-gray-700 transition text-sm font-medium">
+                    ⚡ Charging (<span id="filter-charging-count">0</span>)
+                </button>
+                <button onclick="filterVehicles('idle')" class="filter-btn px-5 py-2.5 rounded-xl bg-gray-200 text-gray-700 transition text-sm font-medium">
+                    ⏸️ Idle (<span id="filter-idle-count">0</span>)
+                </button>
+                <div class="ml-auto flex gap-2">
+                    <button onclick="sortVehicles('battery')" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-yellow-500 to-orange-500 text-white hover:shadow-lg transition-all text-sm font-medium flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/>
+                        </svg>
+                        Battery
+                    </button>
+                    <button onclick="sortVehicles('speed')" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:shadow-lg transition-all text-sm font-medium flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                        Speed
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Vehicle Cards -->
+        <div class="mb-6 flex justify-between items-center">
+            <div>
+                <h2 class="text-2xl font-bold text-white drop-shadow-lg">🚗 Active Vehicles</h2>
+                <p class="text-sm text-white/80 mt-1">Click any vehicle for detailed analytics • Updates every 2 seconds</p>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="refreshVehicles()" class="px-4 py-2 bg-white/20 backdrop-blur text-white rounded-xl hover:bg-white/30 transition text-sm font-medium flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    Refresh
+                </button>
+                <select onchange="changeGridLayout(this.value)" class="px-4 py-2 bg-white/20 backdrop-blur text-white rounded-xl hover:bg-white/30 transition text-sm font-medium border-none outline-none">
+                    <option value="3" selected>3 Columns</option>
+                    <option value="2">2 Columns</option>
+                    <option value="4">4 Columns</option>
+                    <option value="1">1 Column</option>
+                </select>
+            </div>
+        </div>
+        <div id="vehicles-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </div>
+
+    <!-- Vehicle Detail Modal -->
+    <div id="vehicle-modal" style="display: none;"></div>
+
+    <script>
+        // GPS Route (San Francisco to San Jose)
+        const GPS_ROUTE = [
+            [37.7749, -122.4194], [37.7849, -122.4094], [37.7949, -122.3994],
+            [37.8049, -122.3894], [37.7749, -122.3794], [37.7649, -122.3694],
+            [37.7549, -122.3594], [37.7449, -122.3494], [37.7349, -122.3394],
+            [37.7249, -122.3294], [37.7149, -122.3194], [37.7049, -122.3094],
+            [37.6949, -122.2994], [37.6849, -122.2894], [37.6749, -122.2794],
+            [37.6649, -122.2694], [37.6549, -122.2594], [37.6449, -122.2494],
+            [37.6349, -122.2394], [37.6249, -122.2294], [37.3382, -121.8863]
+        ];
+
+        // Vehicle Fleet Data
+        const VEHICLES = [
+            { vin: '1HGBH41JXMN109186', manufacturer: 'Tesla', model: 'Model S', status: 'driving' },
+            { vin: '2T3DFREV8HW678901', manufacturer: 'Nissan', model: 'Leaf', status: 'driving' },
+            { vin: '3VW1K7AJ9EM234567', manufacturer: 'VW', model: 'ID.4', status: 'charging' },
+            { vin: '4KMUC5J19MU345678', manufacturer: 'Hyundai', model: 'Ioniq 5', status: 'driving' },
+            { vin: '5WAUWGFF8FN456789', manufacturer: 'Audi', model: 'e-tron GT', status: 'driving' },
+            { vin: '6G1ZG5ST0HF567890', manufacturer: 'Chevrolet', model: 'Bolt EV', status: 'idle' },
+            { vin: '7JF1ZNAA6HG678901', manufacturer: 'Ford', model: 'Mustang Mach-E', status: 'driving' },
+            { vin: '8KM8K1AG8MU789012', manufacturer: 'Polestar', model: '2', status: 'driving' },
+            { vin: '9W1K7AJ9EM890123', manufacturer: 'BMW', model: 'iX', status: 'charging' },
+            { vin: '0LRBFZXS6MD901234', manufacturer: 'Rivian', model: 'R1T', status: 'driving' }
+        ];
+
+        // State
+        let vehicleStates = new Map();
+        let map = null;
+        let markers = new Map();
+        let alertCount = 0;
+        let updateCount = 0;
+        let currentFilter = 'all';
+        let performanceChart = null;
+        let batteryChart = null;
+        let showRoutes = false;
+        let routeLines = new Map();
+        let vehicleHistory = new Map();
+        let currentMapStyle = 0;
+
+        // Initialize Vehicle States
+        VEHICLES.forEach((vehicle, index) => {
+            vehicleStates.set(vehicle.vin, {
+                ...vehicle,
+                soc: 60 + Math.random() * 30,
+                speed: vehicle.status === 'driving' ? 40 + Math.random() * 40 : 0,
+                temperature: 25 + Math.random() * 15,
+                routeIndex: Math.floor(Math.random() * GPS_ROUTE.length),
+                isCharging: vehicle.status === 'charging',
+                chargingStartSOC: 0,
+                lastUpdate: Date.now(),
+                odometer: Math.floor(10000 + Math.random() * 50000),
+                voltage: 400 + Math.random() * 10,
+                tripDistance: 0,
+                averageSpeed: 0
+            });
+            vehicleHistory.set(vehicle.vin, {
+                speed: [],
+                battery: [],
+                temperature: [],
+                timestamps: []
+            });
+        });
+
+        // Initialize Map
+        function initMap() {
+            map = L.map('map').setView([37.7749, -122.4194], 10);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+        }
+
+        // Get Battery Color
+        function getBatteryColor(soc) {
+            if (soc >= 60) return 'battery-high';
+            if (soc >= 30) return 'battery-medium';
+            return 'battery-low';
+        }
+
+        // Get Marker Color
+        function getMarkerColor(status) {
+            const colors = {
+                driving: '#3b82f6',
+                charging: '#eab308',
+                idle: '#6b7280',
+                online: '#10b981'
+            };
+            return colors[status] || '#ef4444';
+        }
+
+        // Show Alert
+        function showAlert(vehicle, message) {
+            alertCount++;
+            document.getElementById('stat-alerts').textContent = alertCount;
+            
+            const toast = document.createElement('div');
+            toast.className = 'alert-toast';
+            toast.innerHTML = `
+                <div class="flex items-start space-x-3">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                    </svg>
+                    <div>
+                        <p class="font-bold">⚠️ ALERT</p>
+                        <p class="text-sm">${message}</p>
+                        <p class="text-xs mt-1 opacity-75">${vehicle.manufacturer} ${vehicle.model}</p>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 5000);
+        }
+
+        // Update Vehicle Simulation
+        function updateVehicle(vehicle) {
+            const state = vehicleStates.get(vehicle.vin);
+            const history = vehicleHistory.get(vehicle.vin);
+            
+            // Charging logic
+            if (state.isCharging) {
+                if (state.soc < 95) {
+                    state.soc += 0.5; // Charge at 0.5% per update
+                    state.speed = 0;
+                    state.status = 'charging';
+                } else {
+                    state.isCharging = false;
+                    state.status = 'idle';
+                }
+            } else {
+                // Driving logic
+                if (state.status === 'driving') {
+                    // Speed variation
+                    state.speed += (Math.random() - 0.5) * 10;
+                    state.speed = Math.max(20, Math.min(120, state.speed));
+                    
+                    // Battery drain based on speed
+                    const drainRate = 0.02 + (state.speed / 10000);
+                    state.soc -= drainRate;
+                    
+                    // Temperature changes with speed
+                    state.temperature = 25 + (state.speed / 10) + (Math.random() - 0.5) * 5;
+                    
+                    // Update voltage slightly
+                    state.voltage += (Math.random() - 0.5) * 2;
+                    state.voltage = Math.max(390, Math.min(410, state.voltage));
+                    
+                    // Update trip distance
+                    state.tripDistance += (state.speed * 2) / 3600; // km in 2 seconds
+                    state.odometer += (state.speed * 2) / 3600;
+                    
+                    // Move along route
+                    state.routeIndex = (state.routeIndex + 1) % GPS_ROUTE.length;
+                    
+                    // Check for low battery
+                    if (state.soc < 20 && state.soc > 19.5) {
+                        showAlert(state, `Low battery: ${state.soc.toFixed(1)}%`);
+                    }
+                    
+                    // Check for overspeed
+                    if (state.speed > 100 && Math.random() > 0.95) {
+                        showAlert(state, `Overspeed detected: ${state.speed.toFixed(1)} km/h`);
+                    }
+                    
+                    // Check for high temperature
+                    if (state.temperature > 45 && Math.random() > 0.97) {
+                        showAlert(state, `High temperature: ${state.temperature.toFixed(1)}°C`);
+                    }
+                    
+                    // Start charging if battery too low
+                    if (state.soc < 15) {
+                        state.isCharging = true;
+                        state.chargingStartSOC = state.soc;
+                    }
+                } else if (state.status === 'idle') {
+                    state.speed = 0;
+                    // Random chance to start driving
+                    if (Math.random() > 0.98) {
+                        state.status = 'driving';
+                        state.speed = 40;
+                    }
+                }
+            }
+            
+            // Store history
+            history.speed.push(state.speed);
+            history.battery.push(state.soc);
+            history.temperature.push(state.temperature);
+            history.timestamps.push(Date.now());
+            
+            // Keep only last 50 readings
+            if (history.speed.length > 50) {
+                history.speed.shift();
+                history.battery.shift();
+                history.temperature.shift();
+                history.timestamps.shift();
+            }
+            
+            state.lastUpdate = Date.now();
+        }
+
+        // Render Vehicle Card
+        function renderVehicleCard(vehicle) {
+            const state = vehicleStates.get(vehicle.vin);
+            const batteryClass = getBatteryColor(state.soc);
+            const statusClass = `status-${state.status}`;
+            const gpsPos = GPS_ROUTE[state.routeIndex];
+            
+            return `
+                <div class="vehicle-card card" onclick="showVehicleDetail('${vehicle.vin}')">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 class="font-bold text-lg text-gray-900">${state.manufacturer} ${state.model}</h3>
+                            <p class="text-xs text-gray-500 font-mono">${state.vin}</p>
+                        </div>
+                        <span class="px-2 py-1 rounded-full text-xs font-medium ${statusClass}">
+                            ${state.status.toUpperCase()}
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <div class="flex items-center space-x-2 mb-1">
+                                <svg class="w-4 h-4 ${batteryClass}" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/>
+                                </svg>
+                                <span class="text-xs text-gray-500">Battery</span>
+                            </div>
+                            <p class="text-lg font-bold ${batteryClass}">${state.soc.toFixed(1)}%</p>
+                        </div>
+
+                        <div>
+                            <div class="flex items-center space-x-2 mb-1">
+                                <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <circle cx="12" cy="12" r="10" stroke-width="2"/>
+                                    <path stroke-linecap="round" stroke-width="2" d="M12 6v6l4 2"/>
+                                </svg>
+                                <span class="text-xs text-gray-500">Speed</span>
+                            </div>
+                            <p class="text-lg font-bold text-blue-600">${state.speed.toFixed(1)} km/h</p>
+                        </div>
+
+                        <div>
+                            <div class="flex items-center space-x-2 mb-1">
+                                <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                </svg>
+                                <span class="text-xs text-gray-500">GPS</span>
+                            </div>
+                            <p class="text-sm font-medium text-green-600">${gpsPos[0].toFixed(4)}, ${gpsPos[1].toFixed(4)}</p>
+                        </div>
+
+                        <div>
+                            <div class="flex items-center space-x-2 mb-1">
+                                <svg class="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                </svg>
+                                <span class="text-xs text-gray-500">Temp</span>
+                            </div>
+                            <p class="text-sm font-medium text-orange-600">${state.temperature.toFixed(1)}°C</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 pt-3 border-t">
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                                <span class="text-gray-500">Voltage:</span>
+                                <span class="font-medium ml-1">${state.voltage.toFixed(1)}V</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">Odometer:</span>
+                                <span class="font-medium ml-1">${state.odometer.toLocaleString()} km</span>
+                            </div>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-2">
+                            Updated: ${new Date(state.lastUpdate).toLocaleTimeString()}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Filter Vehicles
+        function filterVehicles(status) {
+            currentFilter = status;
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            renderVehicles();
+        }
+
+        // Sort Vehicles
+        function sortVehicles(by) {
+            const vehicleArray = Array.from(vehicleStates.values());
+            if (by === 'battery') {
+                vehicleArray.sort((a, b) => a.soc - b.soc);
+            } else if (by === 'speed') {
+                vehicleArray.sort((a, b) => b.speed - a.speed);
+            }
+            renderVehicles(vehicleArray);
+        }
+
+        // Render Vehicles with Filter
+        function renderVehicles(sortedVehicles = null) {
+            const container = document.getElementById('vehicles-container');
+            let vehicles = sortedVehicles || Array.from(vehicleStates.values());
+            
+            if (currentFilter !== 'all') {
+                vehicles = vehicles.filter(v => v.status === currentFilter);
+            }
+            
+            container.innerHTML = vehicles.map(state => renderVehicleCard(state)).join('');
+        }
+
+        // Show Vehicle Detail Modal
+        function showVehicleDetail(vin) {
+            const state = vehicleStates.get(vin);
+            const history = vehicleHistory.get(vin);
+            const modal = document.getElementById('vehicle-modal');
+            
+            modal.innerHTML = `
+                <div class="modal">
+                    <div class="modal-content p-8 w-full mx-4">
+                        <div class="flex justify-between items-start mb-6">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-900">${state.manufacturer} ${state.model}</h2>
+                                <p class="text-sm text-gray-500 font-mono">${vin}</p>
+                            </div>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                            <div class="bg-blue-50 p-4 rounded-lg">
+                                <p class="text-sm text-gray-600">Current Speed</p>
+                                <p class="text-2xl font-bold text-blue-600">${state.speed.toFixed(1)} km/h</p>
+                            </div>
+                            <div class="bg-green-50 p-4 rounded-lg">
+                                <p class="text-sm text-gray-600">Battery Level</p>
+                                <p class="text-2xl font-bold text-green-600">${state.soc.toFixed(1)}%</p>
+                            </div>
+                            <div class="bg-orange-50 p-4 rounded-lg">
+                                <p class="text-sm text-gray-600">Temperature</p>
+                                <p class="text-2xl font-bold text-orange-600">${state.temperature.toFixed(1)}°C</p>
+                            </div>
+                            <div class="bg-purple-50 p-4 rounded-lg">
+                                <p class="text-sm text-gray-600">Voltage</p>
+                                <p class="text-2xl font-bold text-purple-600">${state.voltage.toFixed(1)}V</p>
+                            </div>
+                        </div>
+
+                        <div class="mb-6">
+                            <h3 class="font-bold text-lg mb-3">📊 Historical Trends (Last 20 readings)</h3>
+                            <canvas id="detailChart"></canvas>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <h3 class="font-bold mb-2">Vehicle Information</h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Status:</span>
+                                        <span class="font-medium">${state.status.toUpperCase()}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Odometer:</span>
+                                        <span class="font-medium">${state.odometer.toLocaleString()} km</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Trip Distance:</span>
+                                        <span class="font-medium">${state.tripDistance.toFixed(1)} km</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <h3 class="font-bold mb-2">GPS Location</h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Latitude:</span>
+                                        <span class="font-medium">${GPS_ROUTE[state.routeIndex][0].toFixed(6)}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Longitude:</span>
+                                        <span class="font-medium">${GPS_ROUTE[state.routeIndex][1].toFixed(6)}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Last Update:</span>
+                                        <span class="font-medium">${new Date(state.lastUpdate).toLocaleTimeString()}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 pt-6 border-t">
+                            <button onclick="closeModal()" class="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                                Close Details
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            modal.style.display = 'block';
+
+            // Create detail chart
+            setTimeout(() => {
+                const ctx = document.getElementById('detailChart');
+                if (ctx) {
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: history.timestamps.slice(-20).map(t => new Date(t).toLocaleTimeString()),
+                            datasets: [
+                                {
+                                    label: 'Speed (km/h)',
+                                    data: history.speed.slice(-20),
+                                    borderColor: '#3b82f6',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Battery (%)',
+                                    data: history.battery.slice(-20),
+                                    borderColor: '#10b981',
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: { legend: { position: 'top' } },
+                            scales: { y: { beginAtZero: true } }
+                        }
+                    });
+                }
+            }, 100);
+        }
+
+        function closeModal() {
+            document.getElementById('vehicle-modal').style.display = 'none';
+        }
+
+        // Toggle Dark Mode
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark');
+            // Could add more dark mode styling
+        }
+
+        // Center Map
+        function centerMap() {
+            if (vehicleStates.size > 0) {
+                const firstVehicle = Array.from(vehicleStates.values())[0];
+                const pos = GPS_ROUTE[firstVehicle.routeIndex];
+                map.setView([pos[0], pos[1]], 12);
+            }
+        }
+
+        // Toggle Routes
+        function toggleHeatmap() {
+            showRoutes = !showRoutes;
+            if (showRoutes) {
+                vehicleStates.forEach((state, vin) => {
+                    const history = vehicleHistory.get(vin);
+                    if (history.timestamps.length > 1) {
+                        const coords = [];
+                        for (let i = Math.max(0, history.timestamps.length - 10); i < history.timestamps.length; i++) {
+                            const routeIdx = state.routeIndex - (history.timestamps.length - i - 1);
+                            if (routeIdx >= 0 && routeIdx < GPS_ROUTE.length) {
+                                coords.push(GPS_ROUTE[routeIdx]);
+                            }
+                        }
+                        if (coords.length > 1) {
+                            const line = L.polyline(coords, { color: getMarkerColor(state.status), weight: 3, opacity: 0.6 }).addTo(map);
+                            routeLines.set(vin, line);
+                        }
+                    }
+                });
+            } else {
+                routeLines.forEach(line => map.removeLayer(line));
+                routeLines.clear();
+            }
+        }
+
+        // Update Map Markers
+        function updateMapMarkers() {
+            vehicleStates.forEach((state, vin) => {
+                const gpsPos = GPS_ROUTE[state.routeIndex];
+                const latlng = [gpsPos[0], gpsPos[1]];
+                
+                if (markers.has(vin)) {
+                    markers.get(vin).setLatLng(latlng);
+                } else {
+                    const icon = L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="background: ${getMarkerColor(state.status)}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    });
+                    
+                    const marker = L.marker(latlng, { icon }).addTo(map);
+                    marker.bindPopup(`
+                        <div style="min-width: 150px;">
+                            <strong>${state.manufacturer} ${state.model}</strong><br>
+                            <small>${vin}</small><br>
+                            <hr style="margin: 8px 0;">
+                            Speed: <strong>${state.speed.toFixed(1)} km/h</strong><br>
+                            Battery: <strong>${state.soc.toFixed(1)}%</strong><br>
+                            Status: <strong>${state.status}</strong>
+                        </div>
+                    `);
+                    markers.set(vin, marker);
+                }
+            });
+        }
+
+        // Update Stats
+        function updateStats() {
+            let totalBattery = 0;
+            let onlineCount = 0;
+            
+            vehicleStates.forEach(state => {
+                totalBattery += state.soc;
+                if (state.status !== 'idle') onlineCount++;
+            });
+            
+            const avgBattery = totalBattery / vehicleStates.size;
+            document.getElementById('stat-battery').textContent = avgBattery.toFixed(1) + '%';
+            document.getElementById('stat-online').textContent = onlineCount;
+        }
+
+        // Initialize Charts
+        function initCharts() {
+            // Performance Chart
+            const perfCtx = document.getElementById('performanceChart');
+            performanceChart = new Chart(perfCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Avg Speed (km/h)',
+                            data: [],
+                            borderColor: '#3b82f6',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Avg Battery (%)',
+                            data: [],
+                            borderColor: '#10b981',
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { y: { beginAtZero: true, max: 120 } }
+                }
+            });
+
+            // Battery Distribution Chart
+            const battCtx = document.getElementById('batteryChart');
+            batteryChart = new Chart(battCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['0-20%', '20-40%', '40-60%', '60-80%', '80-100%'],
+                    datasets: [{
+                        label: 'Number of Vehicles',
+                        data: [0, 0, 0, 0, 0],
+                        backgroundColor: ['#ef4444', '#f97316', '#eab308', '#84cc16', '#10b981']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+        }
+
+        // Update Charts
+        function updateCharts() {
+            // Calculate averages
+            let totalSpeed = 0;
+            let totalBattery = 0;
+            const batteryDist = [0, 0, 0, 0, 0];
+
+            vehicleStates.forEach(state => {
+                totalSpeed += state.speed;
+                totalBattery += state.soc;
+                
+                // Battery distribution
+                if (state.soc < 20) batteryDist[0]++;
+                else if (state.soc < 40) batteryDist[1]++;
+                else if (state.soc < 60) batteryDist[2]++;
+                else if (state.soc < 80) batteryDist[3]++;
+                else batteryDist[4]++;
+            });
+
+            const avgSpeed = totalSpeed / vehicleStates.size;
+            const avgBattery = totalBattery / vehicleStates.size;
+
+            // Update performance chart
+            if (performanceChart.data.labels.length > 20) {
+                performanceChart.data.labels.shift();
+                performanceChart.data.datasets[0].data.shift();
+                performanceChart.data.datasets[1].data.shift();
+            }
+            
+            performanceChart.data.labels.push(new Date().toLocaleTimeString());
+            performanceChart.data.datasets[0].data.push(avgSpeed.toFixed(1));
+            performanceChart.data.datasets[1].data.push(avgBattery.toFixed(1));
+            performanceChart.update('none');
+
+            // Update battery chart
+            batteryChart.data.datasets[0].data = batteryDist;
+            batteryChart.update('none');
+        }
+
+        // Main Update Loop
+        function updateAll() {
+            // Update all vehicles
+            vehicleStates.forEach((state, vin) => {
+                updateVehicle(state);
+            });
+            
+            // Render vehicle cards
+            renderVehicles();
+            
+            // Update map
+            updateMapMarkers();
+            
+            // Update stats
+            updateStats();
+            
+            // Update charts
+            updateCharts();
+            
+            // Update counter and time
+            updateCount++;
+            document.getElementById('update-counter').textContent = `${updateCount} updates`;
+            document.getElementById('time').textContent = new Date().toLocaleTimeString();
+        }
+
+        // New Interactive Functions
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function exportData() {
+            const data = [];
+            vehicleStates.forEach((state, vin) => {
+                data.push({
+                    vehicle: state.name,
+                    vin: vin,
+                    speed: state.speed,
+                    battery: state.soc,
+                    temperature: state.temp,
+                    voltage: state.voltage,
+                    odometer: state.odometer,
+                    latitude: state.lat,
+                    longitude: state.lon,
+                    status: state.status,
+                    timestamp: new Date().toISOString()
+                });
+            });
+            
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `fleet-data-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            showAlert('✅ Data exported successfully!', 'success');
+        }
+
+        function highlightVehicles(type) {
+            if (type === 'battery') {
+                sortVehicles('battery');
+            } else {
+                filterVehicles(type === 'online' ? 'all' : type);
+            }
+        }
+
+        function showAlertsList() {
+            const alerts = [];
+            vehicleStates.forEach((state, vin) => {
+                if (state.soc < 20) alerts.push(`${state.name}: Low battery (${state.soc.toFixed(0)}%)`);
+                if (state.speed > 100) alerts.push(`${state.name}: Overspeeding (${state.speed.toFixed(0)} km/h)`);
+                if (state.temp > 45) alerts.push(`${state.name}: High temperature (${state.temp.toFixed(0)}°C)`);
+            });
+            
+            if (alerts.length === 0) {
+                showAlert('✅ No active alerts - Fleet operating normally', 'success');
+            } else {
+                const alertList = alerts.join('\n');
+                alert('⚠️ ACTIVE ALERTS:\n\n' + alertList);
+            }
+        }
+
+        function resetChart(type) {
+            if (type === 'performance' && performanceChart) {
+                performanceChart.data.labels = [];
+                performanceChart.data.datasets[0].data = [];
+                performanceChart.data.datasets[1].data = [];
+                performanceChart.update();
+                showAlert('🔄 Performance chart reset', 'info');
+            } else if (type === 'battery' && batteryChart) {
+                batteryChart.data.datasets[0].data = [0, 0, 0, 0, 0];
+                batteryChart.update();
+                showAlert('🔄 Battery chart reset', 'info');
+            }
+        }
+
+        function toggleMapStyle() {
+            // Toggle between different map tile styles
+            const styles = [
+                'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+                'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+            ];
+            currentMapStyle = (currentMapStyle + 1) % styles.length;
+            
+            map.eachLayer(layer => {
+                if (layer instanceof L.TileLayer) {
+                    map.removeLayer(layer);
+                }
+            });
+            
+            L.tileLayer(styles[currentMapStyle], {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+            
+            showAlert('🗺️ Map style changed', 'info');
+        }
+
+        function refreshVehicles() {
+            renderVehicles();
+            updateMapMarkers();
+            updateCharts();
+            showAlert('🔄 Vehicles refreshed', 'success');
+        }
+
+        function changeGridLayout(cols) {
+            const container = document.getElementById('vehicles-container');
+            container.className = `grid grid-cols-1 gap-6 ${cols === '1' ? '' : `md:grid-cols-2 ${cols === '3' ? 'lg:grid-cols-3' : cols === '4' ? 'lg:grid-cols-4' : 'lg:grid-cols-2'}`}`;
+        }
+
+        // Enhanced showAlert with types
+        function showAlert(message, type = 'warning') {
+            const colors = {
+                success: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                warning: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                info: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
+            };
+            
+            const toast = document.createElement('div');
+            toast.className = 'alert-toast';
+            toast.style.background = colors[type] || colors.warning;
+            toast.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                    </svg>
+                    <span class="font-medium">${message}</span>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            initCharts();
+            updateAll();
+            
+            // Update every 2 seconds
+            setInterval(updateAll, 2000);
+            
+            // Update clock
+            setInterval(() => {
+                document.getElementById('time').textContent = new Date().toLocaleTimeString();
+            }, 1000);
+            
+            // Close modal on outside click
+            document.addEventListener('click', (e) => {
+                const modal = document.getElementById('vehicle-modal');
+                if (e.target === modal) {
+                    closeModal();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

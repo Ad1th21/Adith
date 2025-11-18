@@ -1,0 +1,132 @@
+name: Pre-Commit Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate-new-files:
+    name: Validate New/Modified Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v40
+        with:
+          files: |
+            **/*.ts
+            **/*.js
+            **/*.html
+            **/*.css
+            **/*.json
+
+      - name: List changed files
+        run: |
+          echo "Changed files:"
+          echo "${{ steps.changed-files.outputs.all_changed_files }}"
+
+      - name: Validate changed files
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          echo "Validating changed files..."
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Checking: $file"
+            
+            # Check file exists
+            if [ ! -f "$file" ]; then
+              echo "✓ File deleted (no validation needed)"
+              continue
+            fi
+            
+            # Check file size
+            size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
+            if [ "$size" -gt 5242880 ]; then  # 5MB
+              echo "❌ Error: File too large ($size bytes)"
+              exit 1
+            fi
+            echo "✓ Size OK: $size bytes"
+            
+            # Validate by file type
+            case "$file" in
+              *.html)
+                echo "Validating HTML..."
+                if ! grep -q "<!DOCTYPE" "$file"; then
+                  echo "⚠️  Warning: Missing DOCTYPE"
+                fi
+                if grep -q "</html>" "$file"; then
+                  echo "✓ HTML structure OK"
+                else
+                  echo "❌ Error: Missing closing html tag"
+                  exit 1
+                fi
+                ;;
+              *.ts|*.js)
+                echo "Validating JavaScript/TypeScript..."
+                # Check for console.log (should be removed in production)
+                if grep -q "console.log" "$file"; then
+                  echo "⚠️  Warning: console.log found (consider removing)"
+                fi
+                # Check for debugger statements
+                if grep -q "debugger" "$file"; then
+                  echo "❌ Error: debugger statement found"
+                  exit 1
+                fi
+                echo "✓ JavaScript/TypeScript OK"
+                ;;
+              *.json)
+                echo "Validating JSON..."
+                if ! python3 -m json.tool "$file" > /dev/null 2>&1; then
+                  echo "❌ Error: Invalid JSON syntax"
+                  exit 1
+                fi
+                echo "✓ JSON syntax OK"
+                ;;
+            esac
+            
+            # Check for trailing whitespace
+            if grep -q "[[:space:]]$" "$file"; then
+              echo "⚠️  Warning: Trailing whitespace found"
+            fi
+            
+            echo "✓ $file passed validation"
+          done
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✓ All changed files validated successfully!"
+
+      - name: Check commit message
+        run: |
+          echo "Validating commit message format..."
+          commit_msg=$(git log -1 --pretty=%B)
+          
+          # Check minimum length
+          if [ ${#commit_msg} -lt 10 ]; then
+            echo "❌ Error: Commit message too short (min 10 characters)"
+            exit 1
+          fi
+          
+          # Check for conventional commits format (optional)
+          if echo "$commit_msg" | grep -qE "^(feat|fix|docs|style|refactor|test|chore|perf)(\(.+\))?: .+"; then
+            echo "✓ Conventional commit format detected"
+          else
+            echo "⚠️  Consider using conventional commit format:"
+            echo "   feat: add new feature"
+            echo "   fix: bug fix"
+            echo "   docs: documentation"
+          fi
+          
+          echo "✓ Commit message OK"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Pre-commit validation summary:"
+          echo "✓ File validation completed"
+          echo "✓ Commit message validated"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
